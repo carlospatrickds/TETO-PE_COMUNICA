@@ -45,10 +45,22 @@ st.image("logo.png", width=180)
 st.markdown(f"<div class='titulo'>{NOME_PROJETO}</div>", unsafe_allow_html=True)
 
 # =========================
-# 📚 HISTÓRICO AUTOMÁTICO
+# 📚 LISTAR EDIÇÕES
 # =========================
 pasta_edicoes = "edicoes"
-edicoes = sorted(os.listdir(pasta_edicoes), reverse=True)
+
+if not os.path.exists(pasta_edicoes):
+    st.error("Pasta 'edicoes' não encontrada.")
+    st.stop()
+
+edicoes = sorted(
+    [f for f in os.listdir(pasta_edicoes) if f.endswith(".pdf")],
+    reverse=True
+)
+
+if not edicoes:
+    st.warning("Nenhuma edição encontrada.")
+    st.stop()
 
 query_params = st.query_params
 edicao_url = query_params.get("edicao", None)
@@ -61,18 +73,7 @@ else:
 caminho_pdf = os.path.join(pasta_edicoes, edicao_escolhida)
 
 # =========================
-# 📥 BOTÃO DOWNLOAD
-# =========================
-with open(caminho_pdf, "rb") as f:
-    st.download_button(
-        label="⬇ Baixar PDF",
-        data=f,
-        file_name=edicao_escolhida,
-        mime="application/pdf"
-    )
-
-# =========================
-# 📖 FLIPBOOK
+# 📖 FLIPBOOK REVISTA DIGITAL
 # =========================
 with open(caminho_pdf, "rb") as f:
     base64_pdf = base64.b64encode(f.read()).decode("utf-8")
@@ -81,69 +82,84 @@ pdf_display = f"""
 <!DOCTYPE html>
 <html>
 <head>
+<meta charset="utf-8">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/page-flip/2.0.7/js/page-flip.browser.min.js"></script>
+
 <style>
 body {{
     display: flex;
     justify-content: center;
+    background-color: {COR_FUNDO};
 }}
 #flipbook {{
     width: 800px;
     height: 600px;
 }}
+canvas {{
+    width: 100% !important;
+    height: auto !important;
+}}
 </style>
 </head>
+
 <body>
 <div id="flipbook"></div>
+
 <script>
-const pdfData = atob("{base64_pdf}");
+const raw = atob("{base64_pdf}");
+const pdfData = new Uint8Array([...raw].map(char => char.charCodeAt(0)));
+
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc =
 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js';
 
-const loadingTask = pdfjsLib.getDocument({{data: pdfData}});
-loadingTask.promise.then(function(pdf) {{
+pdfjsLib.getDocument({{data: pdfData}}).promise.then(function(pdf) {{
 
-const pageFlip = new St.PageFlip(
-    document.getElementById("flipbook"),
-    {{
-        width: 400,
-        height: 600,
-        showCover: true
-    }}
-);
+    const pageFlip = new St.PageFlip(
+        document.getElementById("flipbook"),
+        {{
+            width: 400,
+            height: 600,
+            showCover: true,
+            mobileScrollSupport: true
+        }}
+    );
 
-let pages = [];
+    let pages = [];
+    let loadedPages = 0;
 
-for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
-    pdf.getPage(pageNum).then(function(page) {{
-        const viewport = page.getViewport({{scale: 1}});
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
+        pdf.getPage(pageNum).then(function(page) {{
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+            const viewport = page.getViewport({{scale: 1.5}});
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
 
-        page.render({{
-            canvasContext: context,
-            viewport: viewport
-        }}).promise.then(function() {{
-            pages.push(canvas);
-            if (pages.length === pdf.numPages) {{
-                pageFlip.loadFromHTML(pages.map(p => {{
-                    const div = document.createElement("div");
-                    div.appendChild(p);
-                    return div;
-                }}));
-            }}
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            page.render({{
+                canvasContext: context,
+                viewport: viewport
+            }}).promise.then(function() {{
+
+                const div = document.createElement("div");
+                div.appendChild(canvas);
+                pages[pageNum - 1] = div;
+
+                loadedPages++;
+
+                if (loadedPages === pdf.numPages) {{
+                    pageFlip.loadFromHTML(pages);
+                }}
+            }});
         }});
-    }});
-}}
+    }}
 }});
 </script>
 </body>
 </html>
 """
 
-html(pdf_display, height=700)
+html(pdf_display, height=750)
